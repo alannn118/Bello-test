@@ -1,7 +1,7 @@
 import psycopg2
 from config import Config
 from tabulate import tabulate
-from datetime import datetime
+from datetime import date, time, datetime
 from flask import jsonify
 
 class DatabaseManager:
@@ -56,19 +56,28 @@ class DatabaseManager:
         return tabulate(rows, headers=columns, tablefmt="github")
 
     def check_account_exists(self, account):
+        try:
+            print("Checking if account exists for:", account)
+            query = 'SELECT COUNT(*) FROM "USER" WHERE Account = %s'
+            result = self.execute_query(query, (account,))
+            print("Query result:", result)
+            return result[0][0] > 0 if result else False
+        except Exception as e:
+            print(f"Error in check_account_exists: {e}")
+            return False
 
-        query = 'SELECT COUNT(*) FROM "USER" WHERE Account = %s'
-        result = self.execute_query(query, (account,))
-        return result[0][0] > 0 if result else False
 
     def create_user(self, **user_data):
         try:
+            print("create_user called with:", user_data)
+            # 取得新的 User_id
             query = 'SELECT COALESCE(MAX(User_id), 0) + 1 FROM "USER"'
             result = self.execute_query(query)
             if not result:
-                return False
+                return {'status': "error", 'message': "Fail to execute_query"}
             user_id = result[0][0]
 
+            # 插入 USER 資料表
             insertUser_query =  """
                             INSERT INTO "USER" (
                                 User_id, Account, User_name, User_nickname, Password, 
@@ -93,6 +102,7 @@ class DatabaseManager:
                 user_data['register_time']
             ))
 
+            # 檢查是否為管理員
             if user_data['admin_code'] == 123456:
                 if not success:
                     return False
@@ -111,6 +121,7 @@ class DatabaseManager:
         except Exception as e:
             print(f"Error creating user: {e}")
             return False
+
 
     def verify_login(self, account, password):
         query = """
@@ -203,66 +214,162 @@ class DatabaseManager:
             print(f"Error updating user detail: {e}")
             return False
     
+    # def get_all_meetings(self):
+    #     query = """
+    #             SELECT 
+    #                 m.Meeting_id,
+    #                 m.Content,
+    #                 m.Event_date,
+    #                 m.Start_time,
+    #                 m.End_time,
+    #                 m.Event_city,
+    #                 m.Event_place,
+    #                 m.Status,
+    #                 m.Num_participant,
+    #                 m.Max_num_participant,
+    #                 u.User_name as holder_name,
+    #                 string_agg(ml.Language, ', ') as languages
+    #             FROM MEETING m
+    #             JOIN "USER" u ON m.Holder_id = u.User_id
+    #             LEFT JOIN MEETING_LANGUAGE ml ON m.Meeting_id = ml.Meeting_id
+    #             WHERE m.Status = 'Ongoing'
+    #             GROUP BY m.Meeting_id, m.Content, m.Event_date, m.Start_time, m.End_time,
+    #                     m.Event_city, m.Event_place, m.Status, m.Num_participant, 
+    #                     m.Max_num_participant, u.User_name
+    #             ORDER BY m.Event_date, m.Start_time
+    #             """
+    #     self.cursor.execute(query)
+    #     return self.print_table(self.cursor)
     def get_all_meetings(self):
         query = """
-                SELECT 
-                    m.Meeting_id,
-                    m.Content,
-                    m.Event_date,
-                    m.Start_time,
-                    m.End_time,
-                    m.Event_city,
-                    m.Event_place,
-                    m.Status,
-                    m.Num_participant,
-                    m.Max_num_participant,
-                    u.User_name as holder_name,
-                    string_agg(ml.Language, ', ') as languages
-                FROM MEETING m
-                JOIN "USER" u ON m.Holder_id = u.User_id
-                LEFT JOIN MEETING_LANGUAGE ml ON m.Meeting_id = ml.Meeting_id
-                WHERE m.Status = 'Ongoing'
-                GROUP BY m.Meeting_id, m.Content, m.Event_date, m.Start_time, m.End_time,
-                        m.Event_city, m.Event_place, m.Status, m.Num_participant, 
-                        m.Max_num_participant, u.User_name
-                ORDER BY m.Event_date, m.Start_time
-                """
+            SELECT 
+                m.Meeting_id as meeting_id,
+                m.Content as content,
+                m.Event_date as event_date,
+                m.Start_time as start_time,
+                m.End_time as end_time,
+                m.Event_city as event_city,
+                m.Event_place as event_place,
+                m.Status as status,
+                m.Num_participant as num_participant,
+                m.Max_num_participant as max_participant,
+                u.User_name as holder_name,
+                string_agg(ml.Language, ', ') as languages
+            FROM MEETING m
+            JOIN "USER" u ON m.Holder_id = u.User_id
+            LEFT JOIN MEETING_LANGUAGE ml ON m.Meeting_id = ml.Meeting_id
+            WHERE m.Status = 'Ongoing'
+            GROUP BY m.Meeting_id, u.User_name
+            ORDER BY m.Event_date, m.Start_time
+        """
         self.cursor.execute(query)
-        return self.print_table(self.cursor)
+        rows = self.cursor.fetchall()
+        columns = [desc[0] for desc in self.cursor.description]
 
+        # 将时间对象转换为字符串
+        meetings = []
+        for row in rows:
+            meeting = dict(zip(columns, row))
+            if isinstance(meeting.get("event_date"), datetime):
+                meeting["event_date"] = meeting["event_date"].strftime("%Y-%m-%d")
+            if isinstance(meeting.get("start_time"), time):
+                meeting["start_time"] = meeting["start_time"].strftime("%H:%M:%S")
+            if isinstance(meeting.get("end_time"), time):
+                meeting["end_time"] = meeting["end_time"].strftime("%H:%M:%S")
+            meetings.append(meeting)
+        for meeting in meetings:
+            # 格式化日期
+            if isinstance(meeting["event_date"], str):  # 如果已经是字符串
+                meeting["event_date"] = datetime.strptime(meeting["event_date"], "%a, %d %b %Y %H:%M:%S GMT").strftime("%Y-%m-%d")
+            # 如果是 datetime 对象
+            elif isinstance(meeting["event_date"], datetime):
+                meeting["event_date"] = meeting["event_date"].strftime("%Y-%m-%d")
+        for meeting in meetings:
+            # 解码语言列表中的 Unicode
+            meeting["languages"] = [lang.encode('utf-8').decode('unicode_escape') for lang in meeting["languages"]]
+
+    
+        for meeting in meetings:
+            print(type(meeting["event_date"]))  # 检查 event_date 的类型
+            print(type(meeting["start_time"]))  # 检查 start_time 的类型
+            print(type(meeting["end_time"]))  # 检查 end_time 的类型
+    
+
+        print("Fetched meetings:", meetings)
+        return meetings
+
+    
+
+
+    # def create_meeting(self, holder_id, content, event_date, start_time, end_time, 
+    #               event_city, event_place, max_participants, languages):
+    #     try:
+    #         query = "SELECT COALESCE(MAX(Meeting_id), 0) + 1 FROM MEETING"
+    #         result = self.execute_query(query)
+    #         meeting_id = result[0][0]
+            
+    #         query = """
+    #                 INSERT INTO MEETING (
+    #                     Meeting_id, Holder_id, Content, Event_date, Start_time, End_time,
+    #                     Event_city, Event_place, Status, Num_participant, Max_num_participant
+    #                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Ongoing', 1, %s)
+    #                 """
+    #         self.execute_query(query, (
+    #             meeting_id, holder_id, content, event_date, start_time, end_time,
+    #             event_city, event_place, max_participants
+    #         ))
+            
+    #         for lang in languages:
+    #             query = "INSERT INTO MEETING_LANGUAGE (Meeting_id, Language) VALUES (%s, %s)"
+    #             self.execute_query(query, (meeting_id, lang))
+                
+    #         query = """
+    #                 INSERT INTO PARTICIPATION (User_id, Meeting_id, Join_time)
+    #                 VALUES (%s, %s, NOW())
+    #                 """
+    #         self.execute_query(query, (holder_id, meeting_id))
+            
+    #         return meeting_id
+            
+    #     except Exception as e:
+    #         print(f"Error creating meeting: {e}")
+    #         return None
     def create_meeting(self, holder_id, content, event_date, start_time, end_time, 
-                  event_city, event_place, max_participants, languages):
+                   event_city, event_place, max_participants, languages):
         try:
+            # 獲取新的會議 ID
             query = "SELECT COALESCE(MAX(Meeting_id), 0) + 1 FROM MEETING"
             result = self.execute_query(query)
-            meeting_id = result[0][0]
-            
+            meeting_id = result[0][0] if result else None
+            print(f"New meeting ID: {meeting_id}")  # 新增打印
+
+            # 插入會議資料
             query = """
-                    INSERT INTO MEETING (
-                        Meeting_id, Holder_id, Content, Event_date, Start_time, End_time,
-                        Event_city, Event_place, Status, Num_participant, Max_num_participant
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Ongoing', 1, %s)
-                    """
+                INSERT INTO MEETING (
+                    Meeting_id, Holder_id, Content, Event_date, Start_time, End_time,
+                    Event_city, Event_place, Status, Num_participant, Max_num_participant
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Ongoing', 1, %s)
+            """
             self.execute_query(query, (
-                meeting_id, holder_id, content, event_date, start_time, end_time,
+                meeting_id, holder_id, content, event_date, start_time, end_time, 
                 event_city, event_place, max_participants
             ))
-            
+
+            # 插入語言資料
             for lang in languages:
                 query = "INSERT INTO MEETING_LANGUAGE (Meeting_id, Language) VALUES (%s, %s)"
                 self.execute_query(query, (meeting_id, lang))
-                
-            query = """
-                    INSERT INTO PARTICIPATION (User_id, Meeting_id, Join_time)
-                    VALUES (%s, %s, NOW())
-                    """
+
+            # 預設加入發起者為參與者
+            query = "INSERT INTO PARTICIPATION (User_id, Meeting_id, Join_time) VALUES (%s, %s, NOW())"
             self.execute_query(query, (holder_id, meeting_id))
-            
+
             return meeting_id
-            
         except Exception as e:
-            print(f"Error creating meeting: {e}")
+            print(f"Error creating meeting in database: {e}")  # 新增錯誤打印
             return None
+
+
 
     def check_meeting_availability(self, meeting_id):
         query = """
@@ -678,3 +785,9 @@ class DatabaseManager:
                 'nickname': row[1]
             })
         return users
+
+
+
+
+
+
