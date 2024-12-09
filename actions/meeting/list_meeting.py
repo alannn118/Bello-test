@@ -15,8 +15,8 @@
 
 #         return None
 
-
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, render_template
+from datetime import date, time, datetime
 from DB_utils import DatabaseManager
 
 list_meeting = Blueprint("list_meeting", __name__)
@@ -27,17 +27,16 @@ class ListMeetingAction:
 
     def exec(self):
         try:
-            # 獲取所有會議資料
             meetings = self.db_manager.get_all_meetings()
             if not meetings:
                 return jsonify({"status": "error", "message": "No available meetings found"}), 404
 
-            # 按欄位順序轉換為 JSON 格式
-            meetings_list = [
-                {
+            meetings_list = []
+            for row in meetings:
+                meeting = {
                     "meeting_id": row["meeting_id"],
                     "content": row["content"],
-                    "event_date": row["event_date"],
+                    "event_date": row["event_date"].strftime("%a, %d %b %Y") if isinstance(row["event_date"], (date, datetime)) else row["event_date"],
                     "start_time": row["start_time"],
                     "end_time": row["end_time"],
                     "event_city": row["event_city"],
@@ -46,15 +45,14 @@ class ListMeetingAction:
                     "num_participant": row["num_participant"],
                     "max_participant": row["max_participant"],
                     "holder_name": row["holder_name"],
-                    "languages": row["languages"].split(", ") if row["languages"] else []
+                    "languages": [lang.encode('latin1').decode('utf-8') for lang in row["languages"]] if row["languages"] else []
                 }
-                for row in meetings
-            ]
+                meetings_list.append(meeting)
 
             return jsonify({"status": "success", "meetings": meetings_list}), 200
         except Exception as e:
-            # 捕獲錯誤並返回錯誤訊息
             return jsonify({"status": "error", "message": str(e)}), 500
+
 
 
 # 初始化 DatabaseManager
@@ -63,7 +61,39 @@ db_manager = DatabaseManager()
 # 創建 ListMeetingAction 實例 
 list_meeting_action = ListMeetingAction(db_manager=db_manager)
 
-# 註冊路由
-@list_meeting.route('/list-meeting', methods=['GET'])
+
+# @list_meeting.route('/list_meeting', methods=['GET'])
+# def list_meeting_route():
+#     response = list_meeting_action.exec()
+#     print("Data returned to frontend:", response)
+#     return response
+
+
+@list_meeting.route('/list_meeting', methods=['GET'])
 def list_meeting_route():
-    return list_meeting_action.exec()
+    # 直接渲染 HTML 頁面，數據通過前端 fetch 獲取
+    return render_template('list_meeting.html')
+
+@list_meeting.route('/list_meeting_data', methods=['GET'])
+def list_meeting_data():
+    return list_meeting_action.exec()  # 仍然返回 JSON 數據
+
+
+@list_meeting.route('/join_meeting/<int:meeting_id>', methods=['POST'])
+def join_meeting(meeting_id):
+    try:
+        # 在這裡加入邏輯，確認使用者可以加入會議，並更新資料庫
+        # 例如：檢查會議是否存在，參與人數是否已滿等
+        meeting = db_manager.get_meeting_by_id(meeting_id)
+        if not meeting:
+            return jsonify({"status": "error", "message": "Meeting not found"}), 404
+
+        if meeting["num_participant"] >= meeting["max_participant"]:
+            return jsonify({"status": "error", "message": "Meeting is full"}), 400
+
+        # 加入會議邏輯（例如，更新 num_participant）
+        db_manager.join_meeting(meeting_id)  # 實現這個函數來更新資料庫
+
+        return jsonify({"status": "success", "message": f"Joined meeting {meeting_id} successfully!"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
