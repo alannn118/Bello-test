@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login and Sign-In</title>
+    <link rel="stylesheet" href="../css/login.css">
+    <link rel="stylesheet" href="../css/global.css">
+</head>
+<body class="login-page">
+    <header class="header">
+        <div class="logo">
+            <h1>Bello!</h1>
+        </div>
+        <div class="account-title">
+            <h2>LOGIN</h2>
+        </div>
+    </header>
+
+
+    <!-- Main Content -->
+    <main class="main-container">  
+        <div class="box-container">
+            <!-- LOG IN Section -->
+        <div class="box login-box">
+            <div class="section login-header">
+                <h3>LOG IN</h3>
+            </div>
+
+            <!-- ACCOUNT & PASSWORD Section -->
+            <form class="section account-section" id="login-form" action="/submit-login" method="POST">
+                <div class="input-field">
+                    <label for="account">Account</label>
+                    <input id="account" name="account" type="text" placeholder="Email or Phone" required>
+                </div>
+                <div class="input-field">
+                    <label for="password">Password</label>
+                    <input id="password" name="password" type="password" placeholder="Password" required>
+                </div>
+                <button class="submit-button" type="submit">Log in</button>
+            </form>
+
+            <!-- Register Link -->
+            <div class="register-link">
+                <p>Don't have an account? <a href="/register">Register here</a></p>
+            </div>
+        </div>
+    </main>
+
+    <!-- script -->
+    <script src="/script/login.js"></script>
+</body>
+</html>
+
+
